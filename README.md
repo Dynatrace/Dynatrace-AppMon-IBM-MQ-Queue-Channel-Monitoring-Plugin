@@ -22,10 +22,8 @@
             <img src="images_community/download/attachments/112462681/icon.png" alt="images_community/download/attachments/112462681/icon.png" class="confluence-embedded-image image-center" />
         This monitor collects statistical information from the MQ Queue Manager.    </p>
     </div>
-    
     <div class="section-2"  id="112462681_IBMMQQueueChannelMonitoringPlugin-PluginDetails"  >
         <h2>Plugin Details</h2>
-    
     <div class="tablewrap">
         <table>
 <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
