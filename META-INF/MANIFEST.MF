@@ -1,0 +1,13 @@
+Manifest-Version: 1.0
+Require-Bundle: com.dynatrace.diagnostics.sdk
+Bundle-Vendor: dynaTrace
+Bundle-ClassPath: .,lib/com.ibm.mq.commonservices.jar,lib/com.ibm.mq.h
+ eaders.jar,lib/com.ibm.mq.jar,lib/com.ibm.mq.jmqi.jar,lib/com.ibm.mq.
+ pcf.jar,lib/connector.jar
+Bundle-Version: 0.9.1.6
+Bundle-Name: MQ Queue Channel Monitor
+Bundle-ManifestVersion: 2
+Bundle-SymbolicName: com.dynatrace.plugin.MQQueueChannelMonitorUpdated
+ ;singleton:=true
+Bundle-RequiredExecutionEnvironment: JavaSE-1.6
+

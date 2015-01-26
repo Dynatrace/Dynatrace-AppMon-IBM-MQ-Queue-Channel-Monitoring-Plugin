@@ -1,0 +1,129 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?eclipse version="3.2"?>
+<!-- plugin.xml file written by dynaTrace Client 4.2.0 -->
+<plugin>
+  <extension point="com.dynatrace.diagnostics.pdk.pluginconfig" id="com.dynatrace.plugin.MQQueueChannelMonitorUpdated" name="MQ Queue Channel Monitor Updated">
+    <information>
+      <category value="" />
+      <displayname value="MQ Queue Channel  Monitor UpdatedMQ " />
+      <description value="MQQueue  Channel monitor plugin with z/OS coverage" />
+      <supportlevel value="unsupported" />
+    </information>
+    <configuration>
+      <property key="QMName" label="Queue Manager Name" type="string" description="Name of the queue manager" default="" multiline="false" />
+      <property key="Port" label="Port" type="string" description="Port number on which the queue manager is listening on." default="2414" multiline="false" />
+      <property key="ChannelName" label="Channel Name" type="string" description="My property description ..." default="" multiline="false" />
+      <property key="modelQueueName" label="Model Queue Name" type="string" description="Model queue name for the explicit dynamic queues for the PCF Agent." default="" multiline="false" />
+      <property key="replyQueuePrefix" label="Reply Queue" type="string" description="Reply queue prefix for the explicit dynamic queue for the PCF Agent." default="" multiline="false" />
+      <property key="Use SSL Connection" label="Use SSL Connection" type="boolean" description="Set it to True if you want to use SSL for MQ connection." default="false" />
+      <property key="SSL Keystore Location" label="SSL Keystore Location" type="string" description="My property description ..." default="" multiline="false">
+        <visibility>
+          <rule key="Use SSL Connection" value="true" />
+        </visibility>
+      </property>
+      <property key="SSL Keystore Password" label="SSL Keystore Password" type="password" description="My property description ..." default="">
+        <visibility>
+          <rule key="Use SSL Connection" value="true" />
+        </visibility>
+      </property>
+      <property key="SSL Cipher" label="SSL Cipher" type="list" description="My property description ..." default="NONE">
+        <list>
+          <item value="NONE" />
+          <item value="NULL_MD5" />
+          <item value="NULL_SHA" />
+          <item value="RC4_MD5_EXPORT" />
+          <item value="RC4_MD5_US" />
+          <item value="RC4_SHA_US" />
+          <item value="RC2_MD5_EXPORT" />
+          <item value="DES_SHA_EXPORT" />
+          <item value="RC4_56_SHA_EXPORT1024" />
+          <item value="DES_SHA_EXPORT1024" />
+          <item value="TRIPLE_DES_SHA_US" />
+          <item value="TLS_RSA_WITH_AES_128_CBC_SHA" />
+          <item value="TLS_RSA_WITH_AES_256_CBC_SHA" />
+          <item value="AES_SHA_US2" />
+          <item value="TLS_RSA_WITH_DES_CBC_SHA" />
+          <item value="TLS_RSA_WITH_3DES_EDE_CBC_SHA" />
+          <item value="FIPS_WITH_DES_CBC_SHA" />
+          <item value="FIPS_WITH_3DES_EDE_CBC_SHA" />
+        </list>
+        <visibility>
+          <rule key="Use SSL Connection" value="true" />
+        </visibility>
+      </property>
+      <property key="Authenticate" label="Authenticate" type="boolean" description="My property description ..." default="true" />
+      <property key="User" label="User" type="string" description="My property description ..." default="" multiline="false">
+        <visibility>
+          <rule key="Authenticate" value="true" />
+        </visibility>
+      </property>
+      <property key="Password" label="Password" type="password" description="My property description ..." default="">
+        <visibility>
+          <rule key="Authenticate" value="true" />
+        </visibility>
+      </property>
+      <property key="dateFormat" label="Date Format" type="string" description="Date format" default="yyyy-MM-dd" multiline="false" />
+      <property key="timeFormat" label="Time Format" type="string" description="Time format" default="HH.mm.ss" multiline="false" />
+      <property key="Collect Queue Information" label="Collect Queue Information" type="boolean" description="My property description ..." default="false" />
+      <property key="Queue Name Filter" label="Queue Name Filter (Optional)" type="string" description="Filter string that will allow you to see data for a particular set of queues only. This will help in reducing the memory requirement on the collector." default="" multiline="false">
+        <visibility>
+          <rule key="Collect Queue Information" value="true" />
+        </visibility>
+      </property>
+      <property key="Collect Channel Information" label="Collect Channel Information" type="boolean" description="My property description ..." default="false" />
+      <property key="Channel Name Filter" label="Channel Name Filter (Optional)" type="string" description="Filter string that will allow you to see data for a particular set of channels only. This will help in reducing the memory requirement on the collector." default="" multiline="false">
+        <visibility>
+          <rule key="Collect Channel Information" value="true" />
+        </visibility>
+      </property>
+      <property key="ignoreSystemObject" label="Ignore System Object" type="boolean" description="My property description ..." default="true" />
+    </configuration>
+  </extension>
+  <extension point="com.dynatrace.diagnostics.pdk.monitor" id="com.dynatrace.plugin.MQQueueChannelMonitorUpdated.monitor" name="MQ Queue Channel Monitor Updated">
+    <plugin configid="com.dynatrace.plugin.MQQueueChannelMonitorUpdated" class="com.dynatrace.plugin.MQQueueChannelMonitorUpdated" />
+  </extension>
+  <extension point="com.dynatrace.diagnostics.pdk.monitormetricgroup" id="com.dynatrace.plugin.MQQueueChannelMonitorUpdated.monitor.metricgroup1" name="Queue Manager Group">
+    <metricgroup monitorid="com.dynatrace.plugin.MQQueueChannelMonitorUpdated.monitor">
+      <metric name="Status" unit="number" description="Status of the QM" />
+      <metric name="Connection Count" unit="number" description="Number of QM connections" />
+    </metricgroup>
+  </extension>
+  <extension point="com.dynatrace.diagnostics.pdk.monitormetricgroup" id="com.dynatrace.plugin.MQQueueChannelMonitorUpdated.monitor.metricgroup2" name="Channel Group">
+    <metricgroup monitorid="com.dynatrace.plugin.MQQueueChannelMonitorUpdated.monitor">
+      <metric name="MSGS" unit="number" description="My metric description ..." />
+      <metric name="BYTES_SENT" unit="bytes" description="My metric description ..." />
+      <metric name="SUBSTATE" unit="number" description="My metric description ..." />
+      <metric name="STATUS" unit="number" description="My metric description ..." />
+      <metric name="BYTES_RECEIVED" unit="bytes" description="My metric description ..." />
+      <metric name="BUFFERS_SENT" unit="number" description="My metric description ..." />
+      <metric name="BUFFERS_RECEIVED" unit="number" description="My metric description ..." />
+      <metric name="CONNECTIONS" unit="number" description="Number of channel connections" />
+      <metric name="CHANNEL_TYPE" unit="number" description="Channel Type" />
+      <metric name="LAST_MSG_DATE" unit="number" description="Last message date" />
+      <metric name="LAST_MSG_TIME" unit="number" description="Last message time" />
+      <metric name="CURRENT_SHARING_CONVS" unit="number" description="Current sharing conversations by the channel for SVRCONN only." />
+    </metricgroup>
+  </extension>
+  <extension point="com.dynatrace.diagnostics.pdk.monitormetricgroup" id="com.dynatrace.plugin.MQQueueChannelMonitorUpdated.monitor.metricgroup3" name="Queue Group">
+    <metricgroup monitorid="com.dynatrace.plugin.MQQueueChannelMonitorUpdated.monitor">
+      <metric name="CURRENT_Q_DEPTH" unit="number" description="My metric description ..." />
+      <metric name="MAX_Q_DEPTH" unit="number" description="My metric description ..." />
+      <metric name="OPEN_INPUT_COUNT" unit="number" description="My metric description ..." />
+      <metric name="OPEN_OUTPUT_COUNT" unit="number" description="My metric description ..." />
+      <metric name="DEF_PRIORITY" unit="number" description="My metric description ..." />
+      <metric name="MAX_MSG_LENGTH" unit="kilobytes" description="My metric description ..." />
+      <metric name="INHIBIT_GET" unit="number" description="My metric description ..." />
+      <metric name="INHIBIT_PUT" unit="number" description="My metric description ..." />
+      <metric name="ENQUEUE_COUNT" unit="number" description="The number of messages that where enqueued since last reset queue statistics" />
+      <metric name="DEQUEUE_COUNT" unit="number" description="The number of messages that where dequeued since last reset queue statistics" />
+      <metric name="OLDEST_MSG_AGE" unit="ms" />
+      <metric name="UNCOMMITTED_MSGS" unit="number" />
+      <metric name="HIGH_Q_DEPTH" unit="number" />
+      <metric name="INT_LAST_GET" unit="ms" description="My metric description ..." />
+      <metric name="INT_LAST_PUT" unit="ms" description="My metric description ..." />
+      <metric name="Q_TIME_SHORT" unit="ns" description="My metric description ..." />
+      <metric name="Q_TIME_LONG" unit="ns" description="My metric description ..." />
+    </metricgroup>
+  </extension>
+</plugin>
+

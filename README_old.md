@@ -1,48 +1,19 @@
-<?xml version="1.0" encoding="UTF-8" ?>
-<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN"
-        "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
 <html xmlns="http://www.w3.org/1999/xhtml">
 <head>
     <title>IBM MQ Queue Channel Monitoring Plugin</title>
-
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8"/>
     <meta http-equiv="X-UA-Compatible" content="IE=EmulateIE8" />
     <meta content="Scroll Wiki Publisher" name="generator"/>
-
     <link type="text/css" rel="stylesheet" href="css/blueprint/liquid.css" media="screen, projection"/>
     <link type="text/css" rel="stylesheet" href="css/blueprint/print.css" media="print"/>
-    <!--[if lt IE 8]><link rel="stylesheet" href="css/blueprint/ie.css" type="text/css" media="screen, projection"/><![endif]-->
-
     <link type="text/css" rel="stylesheet" href="css/content-style.css" media="screen, projection, print"/>
     <link type="text/css" rel="stylesheet" href="css/screen.css" media="screen, projection"/>
     <link type="text/css" rel="stylesheet" href="css/print.css" media="print"/>
 </head>
 <body>
-    <div class="container" style="min-width: 760px;">
-        <div class="header block">
-            <div class="header-left column span-6">
-                
-            </div>
-            <div class="column span-18 header-right last">
-                <h4>IBM MQ Queue Channel Monitoring Plugin</h4>
-            </div>
-        </div>
-
-        <div class="block">
-            <div class="toc column span-6 prepend-top">
-                <h3>Table of Contents
-                                        <span class="small">(<a href="IBM_MQ_Queue_Channel_Monitoring_Plugin.html">Start</a>)</span>
-                                    </h3>
-                
-<ul class="toc">
-</ul>
-
-            </div>
-            <div id="112462681" class="content column span-18 last">
                 <h1>IBM MQ Queue Channel Monitoring Plugin</h1>
     <div class="section-2"  id="112462681_IBMMQQueueChannelMonitoringPlugin-Overview"  >
         <h2>Overview</h2>
-    
     <p>
     </p>
     <p>
@@ -51,10 +22,8 @@
             <img src="images_community/download/attachments/112462681/icon.png" alt="images_community/download/attachments/112462681/icon.png" class="confluence-embedded-image image-center" />
         This monitor collects statistical information from the MQ Queue Manager.    </p>
     </div>
-    
     <div class="section-2"  id="112462681_IBMMQQueueChannelMonitoringPlugin-PluginDetails"  >
         <h2>Plugin Details</h2>
-    
     <div class="tablewrap">
         <table>
 <thead class=" "></thead><tfoot class=" "></tfoot><tbody class=" ">    <tr>
@@ -194,20 +163,15 @@ Fixed issue associated with the en-queue/de-queue measures.    </p>
 </tbody>        </table>
             </div>
     </div>
-    
     <div class="section-2"  id="112462681_IBMMQQueueChannelMonitoringPlugin-ProvidedMeasures"  >
         <h2>Provided Measures</h2>
-    
     <div class="section-3"  id="112462681_IBMMQQueueChannelMonitoringPlugin-QueueManager"  >
         <h3>Queue Manager</h3>
-    
 <ul class=" "><li class=" ">    <p>
 Status    </p>
 </li></ul>    </div>
-    
     <div class="section-3"  id="112462681_IBMMQQueueChannelMonitoringPlugin-Queue"  >
         <h3>Queue</h3>
-    
 <ul class=" "><li class=" ">    <p>
 CURRENT_Q_DEPTH    </p>
 </li><li class=" ">    <p>
@@ -243,10 +207,8 @@ Q_TIME_SHORT    </p>
 </li><li class=" ">    <p>
 Q_TIME_LONG    </p>
 </li></ul>    </div>
-    
     <div class="section-3"  id="112462681_IBMMQQueueChannelMonitoringPlugin-Channel"  >
         <h3>Channel</h3>
-    
 <ul class=" "><li class=" ">    <p>
 STATUS    </p>
 </li><li class=" ">    <p>
@@ -262,30 +224,22 @@ BUFFERS_SENT    </p>
 </li><li class=" ">    <p>
 BUFFERS_RECEIVED    </p>
 </li></ul>    </div>
-    
     </div>
-    
     <div class="section-2"  id="112462681_IBMMQQueueChannelMonitoringPlugin-Configuration"  >
         <h2>Configuration</h2>
-    
     <p>
 This monitor uses IBM PCF library to connect to the MQ Manager and collect the statistics. The plugin can be run on any collector. In order for this plugin to work, ensure that SYSTEM.ADMIN.SVRCONN type channel is created on the MQ Manager. This is the channel that the MQ Manager would publish the statistics information.    </p>
     <p>
 NOTE: This plugin requires dynaTrace server version 4.2.0.3170 or higher. This monitor works for IBM MQ 7.0 and higher    </p>
     </div>
-    
     <div class="section-2"  id="112462681_IBMMQQueueChannelMonitoringPlugin-Installation"  >
         <h2>Installation</h2>
-    
     <p>
 Import the Plugin into the dynaTrace Server. For details how to do this please refer to the <a href="https://apmcommunity.compuware.com/community/display/DOCDT50/Plugins">dynaTrace documentation</a>.    </p>
     </div>
-    
             </div>
         </div>
-
         <div class="footer">
-            Created with <a href="http://k15t.com/display/en/Scroll-Wiki-HTML-Exporter-for-Confluence-Overview">Scroll Wiki HTML Exporter for Confluence</a>.
         </div>
     </div>
 </body>
