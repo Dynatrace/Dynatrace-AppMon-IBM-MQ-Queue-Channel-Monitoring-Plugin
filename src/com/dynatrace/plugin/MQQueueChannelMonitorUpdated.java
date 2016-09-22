@@ -13,6 +13,7 @@ import com.dynatrace.diagnostics.pdk.*;
 import com.dynatrace.diagnostics.pdk.Status.StatusCode;
 import com.dynatrace.plugin.domain.HostImpl;
 import com.dynatrace.plugin.util.EnvEmulator;
+import com.dynatrace.plugin.util.MQQueueChannelMonitorConstants;
 
 import java.io.*;
 
@@ -41,8 +42,18 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class MQQueueChannelMonitorUpdated implements Monitor {
-
+public class MQQueueChannelMonitorUpdated implements Monitor, MQQueueChannelMonitorConstants {
+	
+	public enum Rate {
+		per_millisecond,
+		per_second,
+		per_minute,
+		per_hour
+	}
+	
+	Rate rate;
+	private boolean indResetCmd;
+	
 	private static final Logger log = Logger.getLogger(MQQueueChannelMonitorUpdated.class.getName());
 
 	private String[] METRICS_QM =  {"Status","Connection Count"};
@@ -50,7 +61,7 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 	private String[] METRICS_QUEUE =  {	"CURRENT_Q_DEPTH","DEF_PRIORITY", "DEQUEUE_COUNT", "ENQUEUE_COUNT", "INHIBIT_GET", 
 			"INHIBIT_PUT", "MAX_MSG_LENGTH", "MAX_Q_DEPTH", "OPEN_INPUT_COUNT", "OPEN_OUTPUT_COUNT",
 			"OLDEST_MSG_AGE", "UNCOMMITTED_MSGS", "HIGH_Q_DEPTH", "INT_LAST_GET", "INT_LAST_PUT", 
-			"Q_TIME_SHORT", "Q_TIME_LONG"};
+			"Q_TIME_SHORT", "Q_TIME_LONG", "DEQUEUE_RATE", "ENQUEUE_RATE", "PERCENTAGE_Q_DEPTH"};
 	private static final String PARAM_QMNAME = "QMName";
 	private static final String PARAM_PORT = "Port";
 	private static final String PARAM_CHANNEL = "ChannelName";
@@ -65,8 +76,11 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 	private static final String PARAM_CHANNEL_NAME_FILTER = "Channel Name Filter";
 	private static final String PARAM_SYSTEM_OBJECT_FILTER = "ignoreSystemObject";
 	private static final String PARAM_USE_SSL_CONNECTION = "Use SSL Connection";
-	private static final String  PARAM_DATE_FORMAT = "dateFormat";
-	private static final String  PARAM_TIME_FORMAT = "timeFormat";
+	private static final String PARAM_DATE_FORMAT = "dateFormat";
+	private static final String PARAM_TIME_FORMAT = "timeFormat";
+	private static final String PARAM_RATE = "rate";
+	private static final String PARAM_RESET_COMMAND_INDICATOR = "indResetCmd";
+	private static final String PARAM_DEBUGGING_QUEUES = "debuggingQueues";
 //	private static final HashMap<String, ChannelPropWrapper> allChannels = new HashMap<String, ChannelPropWrapper>(); 
 	
 	private String qMName = null;
@@ -84,8 +98,13 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 	private Hashtable<String, Comparable<?>> environment;
 	private int perfEvent;
 	private int platform;
+	private String[] queueNameFilters;
 	private String[] channelNameFilters;
+	public static final String[] ALL_QUEUE_NAMES_FILTER = {"*"};
 	public static final String[] ALL_CHANNEL_NAMES_FILTER = {"*"};
+	public static final String[] EMPTY_ARRAY_STRING = {};
+	private String[] debuggingQueues;
+	private Map<String, String> debuggingQueuesMap = new HashMap<String, String>();
 	
 	private static final String PARAM_HOST = "Host";
 	public static final String DATE_FORMAT = "yyyy-MM-dd";
@@ -112,6 +131,8 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 	private static final String PARAM_SSL_KEYSTORE = "SSL Keystore Location";
 	private static final String PARAM_SSL_KEYSTORE_PWD = "SSL Keystore Password";
 	private static final String PARAM_SSL_CIPHER = "SSL Cipher";
+	
+//	private long rateTimestamp = -1;
 	
 	/**
 	 * Initializes the Plugin. This method is called in the following cases:
@@ -198,11 +219,34 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 			sdf = new SimpleDateFormat(DATE_TIME_FORMAT);
 		}
 		
+		// get rate
+		String value = null;
+		try {
+			rate = Rate.valueOf((value = env.getConfigString(PARAM_RATE)) != null ? value : Rate.per_millisecond.name());
+		} catch (IllegalArgumentException e) {
+			log.warning("setup method: rate configuration parameter '" + (value == null ? "null" : value) + "' threw IllegalArgumentException. Rate.per_millisecond will be used. Stacktrace is '" + getExceptionAsString(e) + "'");
+			rate = Rate.per_millisecond;
+		} catch (NullPointerException e) {
+			log.warning("setup method: rate configuration parameter '" + (value == null ? "null" : value) + "' threw IllegalArgumentException. Rate.per_millisecond will be used. Stacktrace is '" + getExceptionAsString(e) + "'");
+			rate = Rate.per_millisecond;
+		}
+		
+		// set Reset Command Ind
+		indResetCmd = env.getConfigBoolean(PARAM_RESET_COMMAND_INDICATOR);
+		log.finer("setup method: Reset Command Indicator is '" + indResetCmd + "'");
 		// Get Queue Name Filter 
 		queueNameFilter = env.getConfigString(PARAM_QUEUE_NAME_FILTER);
 		if ( queueNameFilter == null || queueNameFilter.isEmpty()) {
 			queueNameFilter = "*";
 		}
+		
+		//Added filtering for queue names
+		// Set channelNameFilters
+		queueNameFilters = trimArray((value = env.getConfigString(PARAM_QUEUE_NAME_FILTER)) != null && !value.trim().isEmpty() ? value.split(SCOLON) : ALL_QUEUE_NAMES_FILTER);
+				
+		log.finer("setup method: queueNameFilters are '" + Arrays.toString(queueNameFilters) + "'");
+		//Done adding filtering for queue names
+		
 		log.finer("setup method: Queue Name Filter is '" + queueNameFilter + "'");
 
 		// Get Channel Name Filter
@@ -214,7 +258,6 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 		log.finer("setup method: Channel Name Filter is '" + channelNameFilter + "'");
 		*/
 		// Set channelNameFilters
-		String value;
 		channelNameFilters = trimArray((value = env.getConfigString(PARAM_CHANNEL_NAME_FILTER)) != null && !value.trim().isEmpty() ? value.split(SCOLON) : ALL_CHANNEL_NAMES_FILTER);
 		
 		log.finer("setup method: channelNameFilters are '" + Arrays.toString(channelNameFilters) + "'");
@@ -226,7 +269,7 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 			ssl_cipher = env.getConfigString(PARAM_SSL_CIPHER);
 			String cipherEquivalent;
 			environment.put(MQC.SSL_CIPHER_SUITE_PROPERTY, cipherEquivalent = getCipherEquiv(ssl_cipher));
-			log.info("setup method: original cipher is '" + ssl_cipher + "', cipher equivalent is '" + cipherEquivalent + "'");
+			log.finer("setup method: original cipher is '" + ssl_cipher + "', cipher equivalent is '" + cipherEquivalent + "'");
 			System.setProperty("javax.net.ssl.keyStore",env.getConfigString(PARAM_SSL_KEYSTORE)); 
 			System.setProperty("javax.net.ssl.keyStorePassword",env.getConfigPassword(PARAM_SSL_KEYSTORE_PWD));				
 			System.setProperty("javax.net.ssl.trustStore",env.getConfigString(PARAM_SSL_KEYSTORE)); 
@@ -245,6 +288,11 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 		// Get Ignore System Object
 		ignoreSystem = env.getConfigBoolean(PARAM_SYSTEM_OBJECT_FILTER);
 		
+		// Get Debugging Queues
+		debuggingQueues = trimArray((value = env.getConfigString(PARAM_DEBUGGING_QUEUES)) != null && !value.trim().isEmpty() ? value.split(SCOLON) : EMPTY_ARRAY_STRING);
+		log.finer("setup method: debuggingQueue is " + Arrays.toString(debuggingQueues));
+		debuggingQueuesMap = getMapFromArray(debuggingQueues);
+		
 		// Populate environment hash table
 		environment.put("hostname", hostName);
 		environment.put("port", Integer.parseInt(port));
@@ -255,11 +303,13 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 		try {
 			qMgr = new MQQueueManager(qMName, environment);
 			if (modelQueueName != null && !modelQueueName.isEmpty()) {
+				log.finer("setup method: modelQueueName is '" + modelQueueName + "'");
 				msgAgent = new PCFMessageAgent();
 				msgAgent.setModelQueueName(modelQueueName);
 				msgAgent.setReplyQueuePrefix(replyQueuePrefix);
 				msgAgent.connect(qMgr);
 			} else {
+				log.finer("setup method: model queue is not used");
 				msgAgent = new PCFMessageAgent(qMgr);
 			}
 				
@@ -309,6 +359,19 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 
 		log.finer("setup: exiting...");		
 		return new Status(Status.StatusCode.Success);
+	}
+	
+	public static Map<String, String> getMapFromArray(String[] as) {
+		if (as == null) {
+			return null;
+		}
+		
+		Map<String, String> map = new HashMap<String, String>();
+		for (String s : as) {
+			map.put(s, s);
+		}
+		
+		return map;
 	}
 	
 	public static String[] trimArray(String[] array) {
@@ -391,26 +454,30 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 		
 		try {
 			// disconnect qMgr and msgAgent on zOS or if at least one of qMgr or msgAgent is null
-			if (platform == CMQC.MQPL_ZOS || qMgr == null || msgAgent == null) {
-				log.finer("execute method: disconnect qMgr and msgAgent on zOS or if at least one of qMgr or msgAgent is null");
+			if (/*platform == CMQC.MQPL_ZOS ||*/ qMgr == null || msgAgent == null) {
+				log.finer("execute method: disconnect qMgr and msgAgent if at least one of qMgr or msgAgent is null");
 				disconnect();
 			}
 			
 			// re-connect qMgr and msgAgent
 			if (qMgr == null || msgAgent == null) {
 				log.finer("execute method: re-connect qMgr and msgAgent");
+				log.finer("execute method: environment is " + Arrays.toString(environment.entrySet().toArray()));
 				qMgr = new MQQueueManager(qMName, environment);
 				if (modelQueueName != null && !modelQueueName.isEmpty()) {
+					log.finer("execute method: modelQueueName is '" + modelQueueName + "'");
 					msgAgent = new PCFMessageAgent();
 					msgAgent.setModelQueueName(modelQueueName);
 					msgAgent.setReplyQueuePrefix(replyQueuePrefix);
+					msgAgent.connect(qMgr);
 				} else {
+					log.finer("execute method: model queue is not used");
 					msgAgent = new PCFMessageAgent(qMgr);
 				}
 			}
 			
 			log.finer("execute method: before calling populateQmMetrics method");
-			if ((status = populateQmMetrics(env)).getStatusCode().getBaseCode() > Status.StatusCode.PartialSuccess.getBaseCode()) {
+			if ((status = populateQmMetrics(env)).getStatusCode().getCode() !=  Status.StatusCode.Success.getCode()) {
 				log.severe("execute method: populateQmMetrics method completed with status code '" + status.getStatusCode().getCode() + "' and message '" + status.getMessage() + "'");
 				disconnect();
 				return status;
@@ -435,13 +502,30 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 			
 			log.finer("execute method: collectQueueInfo value is '" + collectQueueInfo + "'");
 			if (collectQueueInfo) {
+				/*
+				Old code to execute for queues
+				
 				log.finer("execute method: before calling getQueueProp method");
 				status = getQueueProp(env);
+				log.finer("execute method: after calling getQueueProp method");*/
+				
+				//New code to execute for queue filtering
+				log.finer("execute method: before calling getQueueProp method");
+				for(String filteredqueueNameFilter : queueNameFilters)
+				{
+					Status stat;
+					log.finer("Entering getQueueProp for queue filter" + filteredqueueNameFilter);
+					stat = getQueueProp(env, filteredqueueNameFilter);
+					if (stat.getStatusCode().getBaseCode() > status.getStatusCode().getBaseCode()) {
+						status = stat;
+					}
+					log.finer("Exiting getQueueProp for queue filter" + filteredqueueNameFilter);
+				}
 				log.finer("execute method: after calling getQueueProp method");
 			}
 		} catch(PCFException e) {
 			String s = new StringBuilder(
-					"setup method: PCFException Occurred. Reason Code = ")
+					"execute method: PCFException Occurred. Reason Code = ")
 					.append(e.getReason()).append("; Error code = ")
 					.append(e.getErrorCode()).append("; Message = '")
 					.append(e.getMessage()).append("'; Stacktrace is '")
@@ -451,7 +535,7 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 			return new Status(Status.StatusCode.ErrorInternalException, s, s, e);
 		} catch(MQException e) {
 			String s = getMQExceptionAsString(e); 
-			log.severe("setup method: " + s);
+			log.severe("execute method: " + s);
 			disconnect();
 			return new Status(Status.StatusCode.ErrorInternalException, s, s, e);
 
@@ -647,8 +731,7 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 		
 //		Collection<ChannelData> channelPropWrappers = new ArrayList<ChannelData>();
 		Map<String, ChannelData> channelConnections = new HashMap<String, ChannelData>();
-		try
-		{
+		try {
 
 			PCFMessage   request; //,request1;
 			PCFMessage[] responses; //,responses1;
@@ -935,9 +1018,15 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 					}
 				}
 			}
-		}catch(Exception ex){
-			if (ex instanceof PCFException && ((PCFException)ex).getReason() == 3200) {
-				String msg = "getCompleteChProp method: PCF reason code is 3200: no items found matching the creteria '" + channelNameFilter + "'.";
+		} catch (Exception ex) {
+			PCFException pcfEx = null;
+			if (ex instanceof PCFException && ((pcfEx =(PCFException)ex)).getReason() == 3200 || pcfEx.getReason() == 3065) {
+				String msg = "";
+				if (pcfEx.getReason() == 3200) {
+					msg = "getCompleteChProp method: PCF reason code is 3200: no items found matching the creteria '" + channelNameFilter + "'.";
+				} else {
+					msg = "getCompleteChProp method: PCF reason code is 3065: one of the channels which matches channel filter '" + channelNameFilter + "' is not in use. If channel(s) could be not in use then ignore this message, otherwise make sure that channel filter is set correctly.";
+				}
 				log.info(msg);
 				return new Status(StatusCode.PartialSuccess, msg, msg, ex);
 			}
@@ -1046,16 +1135,20 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 	}
 
 
-	public Status getQueueProp(MonitorEnvironment env) throws MQException,java.io.IOException, MQDataException {
+	public Status getQueueProp(MonitorEnvironment env, String filteredqueueNameFilter) throws MQException,java.io.IOException, MQDataException {
 		if (log.isLoggable(Level.FINER)) {
 			log.finer("Entering getQueueProp method");
 		}
 
 		log.finer("getQueueProp method: before setting allQueueProperties");
 		List<QueuePropWrapper> allQueueProperties = new ArrayList<QueuePropWrapper>();
-		Status status = getQueueProperties(allQueueProperties);
+		//Old call to getQueueProperties for queue filtering
+		//Status status = getQueueProperties(allQueueProperties);
+		Status status = getQueueProperties(allQueueProperties, filteredqueueNameFilter);
 		if (allQueueProperties != null) {
-			log.finer("getQueueProp method: allQueueProperties has size " + allQueueProperties.size());
+			if (log.isLoggable(Level.FINER)) {
+				log.finer("getQueueProp method: allQueueProperties has size " + allQueueProperties.size());
+			}
 		}
 
 /*		log.finer("Here are the queues ++++++++++++++++++++++++++++++++");
@@ -1075,80 +1168,141 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 						MonitorMeasure dynamicMeasure = env.createDynamicMeasure(subscribedMonitorMeasure, "Queue Name", queueName);
 						switch (index) {
 						case 0:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getDepth() is " + queuePropWrapper.getDepth());
-							dynamicMeasure.setValue(queuePropWrapper.getDepth());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getDepth() is " + queuePropWrapper.getDepth());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getDepth() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getDepth());
 							break;
 						case 1:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getPriorty() is " + queuePropWrapper.getPriorty());
-							dynamicMeasure.setValue(queuePropWrapper.getPriorty());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getPriorty() is " + queuePropWrapper.getPriorty());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getPriorty() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getPriorty());
 							break;
 						case 2:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getDeQueueCount() is " + queuePropWrapper.getDeQueueCount());
-							dynamicMeasure.setValue(queuePropWrapper.getDeQueueCount());
+							if (log.isLoggable(Level.FINE)) {
+								log.fine("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getDeQueueCount() is " + queuePropWrapper.getDeQueueCount());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getDeQueueCount() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getDeQueueCount());
 							break;							
 						case 3:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getEnQueueCount() is " + queuePropWrapper.getEnQueueCount());
-							dynamicMeasure.setValue(queuePropWrapper.getEnQueueCount());
+							if (log.isLoggable(Level.FINE)) {
+								log.fine("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getEnQueueCount() is " + queuePropWrapper.getEnQueueCount());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getEnQueueCount() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getEnQueueCount());
 							break;							
 						case 4:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getGetAllowed() is " + queuePropWrapper.getGetAllowed());
-							dynamicMeasure.setValue(queuePropWrapper.getGetAllowed());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getGetAllowed() is " + queuePropWrapper.getGetAllowed());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getGetAllowed() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getGetAllowed());
 							break;
 						case 5:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getPutAllowed() is " + queuePropWrapper.getPutAllowed());
-							dynamicMeasure.setValue(queuePropWrapper.getPutAllowed());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getPutAllowed() is " + queuePropWrapper.getPutAllowed());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getPutAllowed() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getGetAllowed());
 							break;
 						case 6:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getMsgLength() is " + queuePropWrapper.getMsgLength());
-							dynamicMeasure.setValue(queuePropWrapper.getMsgLength());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getMsgLength() is " + queuePropWrapper.getMsgLength());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getMsgLength() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getMsgLength());
 							break;
 						case 7:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getMaxDepth() is " + queuePropWrapper.getMaxDepth());
-							dynamicMeasure.setValue(queuePropWrapper.getMaxDepth());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getMaxDepth() is " + queuePropWrapper.getMaxDepth());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getMaxDepth() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getMaxDepth());
 							break;
 						case 8:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getOpenInputCount() is " + queuePropWrapper.getOpenInputCount());
-							dynamicMeasure.setValue(queuePropWrapper.getOpenInputCount());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getOpenInputCount() is " + queuePropWrapper.getOpenInputCount());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getOpenInputCount() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getOpenInputCount());
 							break;
 						case 9:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getOpenOutputCount() is " + queuePropWrapper.getOpenOutputCount());
-							dynamicMeasure.setValue(queuePropWrapper.getOpenOutputCount());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getOpenOutputCount() is " + queuePropWrapper.getOpenOutputCount());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getOpenOutputCount() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getOpenOutputCount());
 							break;
 						case 10:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getOldestMsgAge() is " + queuePropWrapper.getOldestMsgAge());
-							dynamicMeasure.setValue(queuePropWrapper.getOldestMsgAge());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getOldestMsgAge() is " + queuePropWrapper.getOldestMsgAge());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getOldestMsgAge() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getOldestMsgAge());
 							break;
 						case 11:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getUncommittedMsgs() is " + queuePropWrapper.getUncommittedMsgs());
-							dynamicMeasure.setValue(queuePropWrapper.getUncommittedMsgs());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getUncommittedMsgs() is " + queuePropWrapper.getUncommittedMsgs());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getUncommittedMsgs() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getUncommittedMsgs());
 							break;
 						case 12:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getHighQDepth() is " + queuePropWrapper.getHighQDepth());
-							dynamicMeasure.setValue(queuePropWrapper.getHighQDepth());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getHighQDepth() is " + queuePropWrapper.getHighQDepth());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getHighQDepth() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getHighQDepth());
 							break;
 						case 13:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getIntervalSinceLastGet() is " + queuePropWrapper.getIntervalSinceLastGet());
-							dynamicMeasure.setValue(queuePropWrapper.getIntervalSinceLastGet());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getIntervalSinceLastGet() is " + queuePropWrapper.getIntervalSinceLastGet());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getIntervalSinceLastGet() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getIntervalSinceLastGet());
 							break;
 						case 14:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getIntervalSinceLastPut() is " + queuePropWrapper.getIntervalSinceLastPut());
-							dynamicMeasure.setValue(queuePropWrapper.getIntervalSinceLastPut());
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getIntervalSinceLastPut() is " + queuePropWrapper.getIntervalSinceLastPut());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getIntervalSinceLastPut() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getIntervalSinceLastPut());
 							break;
 						case 15:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getOnQTime()[0] is " + queuePropWrapper.getOnQTime()[0]);
-							if (queuePropWrapper.getOnQTime()[0] != MQConstants.MQMON_NOT_AVAILABLE ) {
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getOnQTime()[0] is " + queuePropWrapper.getOnQTime()[0]);
+							}
+							if (queuePropWrapper.getOnQTime().length > 0 && queuePropWrapper.getOnQTime()[0] != MQConstants.MQMON_NOT_AVAILABLE ) {
 								dynamicMeasure.setValue(queuePropWrapper.getOnQTime()[0] * 1000);
-							} else {
+							} else if (queuePropWrapper.getOnQTime().length > 0){
 								dynamicMeasure.setValue(queuePropWrapper.getOnQTime()[0]);
 							}
 							break;
 						case 16:
-							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getOnQTime()[1] is " + queuePropWrapper.getOnQTime()[1]);
-							if (queuePropWrapper.getOnQTime()[1] != MQConstants.MQMON_NOT_AVAILABLE ) {
+							if (log.isLoggable(Level.FINER)) {
+								log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getOnQTime()[1] is " + queuePropWrapper.getOnQTime()[1]);
+							}
+							if (queuePropWrapper.getOnQTime().length > 1 && queuePropWrapper.getOnQTime()[1] != MQConstants.MQMON_NOT_AVAILABLE ) {
 								dynamicMeasure.setValue(queuePropWrapper.getOnQTime()[1] * 1000);
-							} else {
+							} else if (queuePropWrapper.getOnQTime().length > 1) {
 								dynamicMeasure.setValue(queuePropWrapper.getOnQTime()[1]);
 							}
+							break;
+						// add DEQUEUE_RATE
+						case 17: 
+							if (log.isLoggable(Level.FINE)) {
+								log.fine("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getDeQueueRate() is " + queuePropWrapper.getDeQueueRate());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getDeQueueRate());
+							break;
+						// add ENQUEUE_RATE
+						case 18: 
+							if (log.isLoggable(Level.FINE)) {
+								log.fine("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getEnQueueRate() is " + queuePropWrapper.getEnQueueRate());
+							}
+							dynamicMeasure.setValue(queuePropWrapper.getEnQueueRate());
+							break;
+						// add PERCENTAGE_Q_DEPTH
+						case 19: 
+							double percent_q_depth = (queuePropWrapper.getDepth() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getDepth()) / (queuePropWrapper.getMaxDepth() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getMaxDepth());
+							percent_q_depth = percent_q_depth * 100;
+							if (log.isLoggable(Level.FINE)) {
+								log.fine("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.getDepth() is " + queuePropWrapper.getDepth());
+								log.fine("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for queuePropWrapper.queuePropWrapper.getMaxDepth() is " + queuePropWrapper.getMaxDepth());
+								log.fine("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', value for percent_q_depth is " + percent_q_depth);
+							}
+							//dynamicMeasure.setValue(queuePropWrapper.getDepth() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getDepth());
+							//dynamicMeasure.setValue(queuePropWrapper.getMaxDepth() == Integer.MIN_VALUE ? Double.NaN : queuePropWrapper.getMaxDepth());
+							dynamicMeasure.setValue(percent_q_depth);
 							break;
 						default:
 							log.finer("getQueueProp method: index is " + index + ", queueName is '" + queueName + "', metric is unknown");
@@ -1161,27 +1315,28 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 		return status;
 	}
 	
-	public Status getQueueProperties(List<QueuePropWrapper> allQueueProperties) throws MQException,
+	public Status getQueueProperties(List<QueuePropWrapper> allQueueProperties, String filteredqueueNameFilter) throws MQException,
 	IOException, MQDataException {
 		if (log.isLoggable(Level.FINER)) {
 			log.finer("Entering getQueueProperties method");
 		}
-		
+		boolean isException = false;
+		String errMsg = EMPTY_STRING;
 		Status status = new Status(StatusCode.Success);
 	
 		HashMap<String, QueuePropWrapper> qObjectMap = new HashMap<String, QueuePropWrapper>(); 
 		PCFMessage pcfCmd = new PCFMessage(MQConstants.MQCMD_INQUIRE_Q_STATUS);
-		pcfCmd.addParameter(MQConstants.MQCA_Q_NAME, queueNameFilter);
+		pcfCmd.addParameter(MQConstants.MQCA_Q_NAME, filteredqueueNameFilter);
 		pcfCmd.addParameter(MQConstants.MQIACF_Q_STATUS_TYPE, MQConstants.MQIACF_Q_STATUS);
 		
 		//we should restrict to QLOCAL
 //		pcfCmd.addParameter(MQConstants.MQIA_Q_TYPE, MQConstants.MQQT_LOCAL); there is no such request parameter 
 		
 		PCFMessage pcfResetCmd = new PCFMessage(MQConstants.MQCMD_RESET_Q_STATS);
-		pcfResetCmd.addParameter(MQConstants.MQCA_Q_NAME, queueNameFilter);
+		pcfResetCmd.addParameter(MQConstants.MQCA_Q_NAME, filteredqueueNameFilter);
 
 		PCFMessage pcfInqCmd = new PCFMessage(MQConstants.MQCMD_INQUIRE_Q);
-		pcfInqCmd.addParameter(MQConstants.MQCA_Q_NAME, queueNameFilter);
+		pcfInqCmd.addParameter(MQConstants.MQCA_Q_NAME, filteredqueueNameFilter);
 		pcfInqCmd.addParameter(MQConstants.MQIA_Q_TYPE, MQConstants.MQQT_LOCAL );
 		
 		PCFMessage[] pcfResetResponse;
@@ -1223,32 +1378,105 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 				
 				QueuePropWrapper q  = new QueuePropWrapper();
 				currentQName = response.getStringParameterValue(MQConstants.MQCA_Q_NAME);
+				// Added in the .trim()
+				currentQName = currentQName.trim();
 				q.setQueueName(currentQName);
 				if (currentQName.startsWith("SYSTEM") && ignoreSystem == true){
 					//do nothing
 					log.finer("getQueueProperties method:  pcfCmd command: skip response with the queueName '" + currentQName + "' because ignoreSystem is " + ignoreSystem);
 				}else{
-					q.setDepth(response.getIntParameterValue(MQConstants.MQIA_CURRENT_Q_DEPTH));
-					q.setOpenInputCount(response.getIntParameterValue(MQConstants.MQIA_OPEN_INPUT_COUNT));
-					q.setOpenOutputCount(response.getIntParameterValue(MQConstants.MQIA_OPEN_OUTPUT_COUNT));
-					q.setLastGetDate(response.getStringParameterValue(MQConstants.MQCACF_LAST_GET_DATE));
-					q.setLastGetTime(response.getStringParameterValue(MQConstants.MQCACF_LAST_GET_TIME));
-					q.setLastPutDate(response.getStringParameterValue(MQConstants.MQCACF_LAST_PUT_DATE));
-					q.setLastPutTime(response.getStringParameterValue(MQConstants.MQCACF_LAST_PUT_TIME)); // fixed from MQCACF_LAST_GET_TIME to MQCACF_LAST_PUT_TIME
-					q.setOldestMsgAge(response.getIntParameterValue(MQConstants.MQIACF_OLDEST_MSG_AGE));
-					q.setUncommittedMsgs(response.getIntParameterValue(MQConstants.MQIACF_UNCOMMITTED_MSGS));
-					q.setOnQTime(response.getIntListParameterValue(MQConstants.MQIACF_Q_TIME_INDICATOR));
-					if (log.isLoggable(Level.FINER)) {
-						log.finer("getQueueProperties method: Queue Name is '" + currentQName + "', MQIA_CURRENT_Q_DEPTH is '" + q.getDepth() + "'");
-						log.finer("getQueueProperties method: Queue Name is '" + currentQName + "', MQIA_OPEN_INPUT_COUNT is '" + q.getOpenInputCount() + "'");
-						log.finer("getQueueProperties method: Queue Name is '" + currentQName + "', MQIA_OPEN_OUTPUT_COUNT is '" + q.getOpenOutputCount() + "'");
-						log.finer("getQueueProperties method: Queue Name is '" + currentQName + "', MQCACF_LAST_GET_DATE is '" + q.getLastGetDate() + "'");
-						log.finer("getQueueProperties method: Queue Name is '" + currentQName + "', MQCACF_LAST_GET_TIME is '" + q.getLastGetTime() + "'");
-						log.finer("getQueueProperties method: Queue Name is '" + currentQName + "', MQCACF_LAST_PUT_DATE is '" + q.getLastPutDate() + "'");
-						log.finer("getQueueProperties method: Queue Name is '" + currentQName + "', MQCACF_LAST_PUT_TIME is '" + q.getLastPutTime() + "'");
-						log.finer("getQueueProperties method: Queue Name is '" + currentQName + "', MQIACF_OLDEST_MSG_AGE is '" + q.getOldestMsgAge() + "'");
-						log.finer("getQueueProperties method: Queue Name is '" + currentQName + "', MQIACF_UNCOMMITTED_MSGS is '" + q.getUncommittedMsgs() + "'");
-						log.finer("getQueueProperties method: Queue Name is '" + currentQName + "', MQIACF_Q_TIME_INDICATOR is '" + Arrays.toString(q.getOnQTime()) + "'");
+					try {
+						q.setDepth(response.getIntParameterValue(MQConstants.MQIA_CURRENT_Q_DEPTH));
+					} catch (Exception e) {
+						q.setDepth(-1);
+						errMsg = "getQueueProperties method: get CURRENT_Q_DEPTH for queue '" + q.getQueueName() + "' threw exception '" + getExceptionAsString(e) + "'";
+						log.severe(errMsg);
+						isException = true;
+					}
+					try {
+						q.setOpenInputCount(response.getIntParameterValue(MQConstants.MQIA_OPEN_INPUT_COUNT));
+					} catch(Exception e) {
+						q.setOpenInputCount(-1);
+						errMsg = "getQueueProperties method: get OPEN_INPUT_COUNT for queue '" + q.getQueueName() + "' threw exception '" + getExceptionAsString(e) + "'";
+						log.severe(errMsg);
+						isException = true;
+					}
+					try {
+						q.setOpenOutputCount(response.getIntParameterValue(MQConstants.MQIA_OPEN_OUTPUT_COUNT));
+					} catch(Exception e) {
+						q.setOpenOutputCount(-1);
+						errMsg = "getQueueProperties method: get OPEN_OUTPUT_COUNT for queue '" + q.getQueueName() + "' threw exception '" + getExceptionAsString(e) + "'";
+						log.severe(errMsg);
+						isException = true;
+					}
+					try {
+						q.setLastGetDate(response.getStringParameterValue(MQConstants.MQCACF_LAST_GET_DATE));
+					} catch (Exception e) {
+						q.setLastGetDate(EMPTY_STRING);
+						errMsg = "getQueueProperties method: get LAST_GET_DATE for queue '" + q.getQueueName() + "' threw exception '" + getExceptionAsString(e) + "'";
+						log.severe(errMsg);
+						isException = true;
+					}
+					try {
+						q.setLastGetTime(response.getStringParameterValue(MQConstants.MQCACF_LAST_GET_TIME));
+					} catch (Exception e) {
+						q.setLastGetTime(EMPTY_STRING);
+						errMsg = "getQueueProperties method: get LAST_GET_TIME for queue '" + q.getQueueName() + "' threw exception '" + getExceptionAsString(e) + "'";
+						log.severe(errMsg);
+						isException = true;
+					}
+					try {
+						q.setLastPutDate(response.getStringParameterValue(MQConstants.MQCACF_LAST_PUT_DATE));
+					} catch (Exception e) {
+						q.setLastPutDate(EMPTY_STRING);
+						errMsg = "getQueueProperties method: get LAST_PUT_DATE for queue '" + q.getQueueName() + "' threw exception '" + getExceptionAsString(e) + "'";
+						log.severe(errMsg);
+						isException = true;
+					}
+					try {
+						q.setLastPutTime(response.getStringParameterValue(MQConstants.MQCACF_LAST_PUT_TIME)); // fixed from MQCACF_LAST_GET_TIME to MQCACF_LAST_PUT_TIME
+					} catch (Exception e) {
+						q.setLastPutTime(EMPTY_STRING);
+						errMsg = "getQueueProperties method: get LAST_PUT_TIME for queue '" + q.getQueueName() + "' threw exception '" + getExceptionAsString(e) + "'";
+						log.severe(errMsg);
+						isException = true;
+					}
+					try {
+						q.setOldestMsgAge(response.getIntParameterValue(MQConstants.MQIACF_OLDEST_MSG_AGE));
+					} catch (Exception e) {
+						q.setOldestMsgAge(-1);
+						errMsg = "getQueueProperties method: get OLDEST_MSG_AGE for queue '" + q.getQueueName() + "' threw exception '" + getExceptionAsString(e) + "'";
+						log.severe(errMsg);
+						isException = true;
+					}
+					try {
+						q.setUncommittedMsgs(response.getIntParameterValue(MQConstants.MQIACF_UNCOMMITTED_MSGS));
+					} catch (Exception e) {
+						q.setUncommittedMsgs(-1);
+						errMsg = "getQueueProperties method: get UNCOMMITTED_MSGS for queue '" + "' threw exception '" + getExceptionAsString(e) + "'";
+						log.severe(errMsg);
+						isException = true;
+					}
+					try {
+						q.setOnQTime(response.getIntListParameterValue(MQConstants.MQIACF_Q_TIME_INDICATOR));
+					} catch (Exception e) {
+						int[] aint = new int[]{-1};
+						q.setOnQTime(aint);
+						errMsg = "getQueueProperties method: get Q_TIME_INDICATOR for queue '" + "' threw exception '" + getExceptionAsString(e) + "'";
+						log.severe(errMsg);
+						isException = true;
+					}
+					if (log.isLoggable(Level.WARNING) && debuggingQueuesMap.containsKey(q.getQueueName())) {
+						log.warning("getQueueProperties method: Queue Name is '" + currentQName + "', MQIA_CURRENT_Q_DEPTH is '" + q.getDepth() + "'");
+						log.warning("getQueueProperties method: Queue Name is '" + currentQName + "', MQIA_OPEN_INPUT_COUNT is '" + q.getOpenInputCount() + "'");
+						log.warning("getQueueProperties method: Queue Name is '" + currentQName + "', MQIA_OPEN_OUTPUT_COUNT is '" + q.getOpenOutputCount() + "'");
+						log.warning("getQueueProperties method: Queue Name is '" + currentQName + "', MQCACF_LAST_GET_DATE is '" + q.getLastGetDate() + "'");
+						log.warning("getQueueProperties method: Queue Name is '" + currentQName + "', MQCACF_LAST_GET_TIME is '" + q.getLastGetTime() + "'");
+						log.warning("getQueueProperties method: Queue Name is '" + currentQName + "', MQCACF_LAST_PUT_DATE is '" + q.getLastPutDate() + "'");
+						log.warning("getQueueProperties method: Queue Name is '" + currentQName + "', MQCACF_LAST_PUT_TIME is '" + q.getLastPutTime() + "'");
+						log.warning("getQueueProperties method: Queue Name is '" + currentQName + "', MQIACF_OLDEST_MSG_AGE is '" + q.getOldestMsgAge() + "'");
+						log.warning("getQueueProperties method: Queue Name is '" + currentQName + "', MQIACF_UNCOMMITTED_MSGS is '" + q.getUncommittedMsgs() + "'");
+						log.warning("getQueueProperties method: Queue Name is '" + currentQName + "', MQIACF_Q_TIME_INDICATOR is '" + Arrays.toString(q.getOnQTime()) + "'");
 					}
 				
 					qObjectMap.put(q.getQueueName(), q);
@@ -1267,114 +1495,162 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 				log.severe(msg);
 				status = new Status(StatusCode.PartialSuccess, msg, msg);
 			}
-			
-			try {
-				// pcfResetCmd command is MQConstants.MQCMD_RESET_Q_STATS
-				pcfResetResponse = msgAgent.send(pcfResetCmd);
-				log.finer("getQueueProperties method: pcfResetCmd command is MQConstants.MQCMD_RESET_Q_STATS, responses = "
-						+ pcfResetResponse.length);
-						
-				for (PCFMessage resetResponse : pcfResetResponse) {
+			if (indResetCmd) {
+				try {
+					// pcfResetCmd command is MQConstants.MQCMD_RESET_Q_STATS
+	//				long currentTimestamp = System.currentTimeMillis();
+					pcfResetResponse = msgAgent.send(pcfResetCmd);
 					if (log.isLoggable(Level.FINER)) {
-						log.finer("getQueueProperties methodb: pcfResetCmd command: QName of the resetResponse is '" + resetResponse.getStringParameterValue(MQConstants.MQCA_Q_NAME) + "', response # " + (i++)
-								+ ", reasone code " + resetResponse.getReason()
-								+ ", parameters count "
-								+ resetResponse.getParameterCount());
+						log.finer("getQueueProperties method: pcfResetCmd command is MQConstants.MQCMD_RESET_Q_STATS, responses = "
+								+ pcfResetResponse.length);
 					}
-					
-					String qName = resetResponse.getStringParameterValue(MQConstants.MQCA_Q_NAME);
-					if (qName.startsWith("SYSTEM") && ignoreSystem == true) {
-						// do nothing
-						log.finer("getQueueProperties method:  pcfResetCmd command: skip response for the pcfResetCmd with the queueName '" + qName + "' because ignoreSystem is " + ignoreSystem);
-					} else {
-						qObjectMap.get(qName).setHighQDepth(resetResponse.getIntParameterValue(MQConstants.MQIA_HIGH_Q_DEPTH));
-						qObjectMap.get(qName).setEnQueueCount(resetResponse.getIntParameterValue(MQConstants.MQIA_MSG_ENQ_COUNT));
-						qObjectMap.get(qName).setDeQueueCount(resetResponse.getIntParameterValue(MQConstants.MQIA_MSG_DEQ_COUNT));
+					i = 0;
+					for (PCFMessage resetResponse : pcfResetResponse) {
+						if (resetResponse.getParameterCount() <= 2) {
+							continue;
+						}
+						
 						if (log.isLoggable(Level.FINER)) {
-							log.finer("getQueueProperties methodb: pcfResetCmd command: QName of the resetResponse is '" + qName 
-									+ "', High Queue depth is '" + qObjectMap.get(qName).getHighQDepth() 
-									+ "', EnQueue count is '" + qObjectMap.get(qName).getEnQueueCount()
-									+ "', DeQueue count is '" + qObjectMap.get(qName).getDeQueueCount()
-									+ "'");
+							log.finer("getQueueProperties method: pcfResetCmd command: QName of the resetResponse is '" + resetResponse.getStringParameterValue(MQConstants.MQCA_Q_NAME) + "', response # " + (i++)
+									+ ", reasone code " + resetResponse.getReason()
+									+ ", parameters count "
+									+ resetResponse.getParameterCount());
+						}
+						
+						String qName = resetResponse.getStringParameterValue(MQConstants.MQCA_Q_NAME);
+						// Added in the .trim()
+						qName = qName.trim();
+						if (qName.startsWith("SYSTEM") && ignoreSystem == true) {
+							// do nothing
+							log.finer("getQueueProperties method:  pcfResetCmd command: skip response for the pcfResetCmd with the queueName '" + qName + "' because ignoreSystem is " + ignoreSystem);
+						} else {
+							QueuePropWrapper wrapper;
+							if ((wrapper = qObjectMap.get(qName)) != null) {
+								wrapper.setHighQDepth(resetResponse.getIntParameterValue(MQConstants.MQIA_HIGH_Q_DEPTH)); //<== check if get returns null
+								int timeSinceLastReset = resetResponse.getIntParameterValue(MQConstants.MQIA_TIME_SINCE_RESET);
+								int valueCurrent;
+								wrapper.setEnQueueCount(valueCurrent = resetResponse.getIntParameterValue(MQConstants.MQIA_MSG_ENQ_COUNT));
+								// add calculation of the EnqueueRate
+								wrapper.setEnQueueRate(getRate(valueCurrent, rate, timeSinceLastReset));
+								wrapper.setDeQueueCount(valueCurrent = resetResponse.getIntParameterValue(MQConstants.MQIA_MSG_DEQ_COUNT));
+								// add calculation of the DequeueRate
+								wrapper.setDeQueueRate(getRate(valueCurrent, rate, timeSinceLastReset));
+								if (log.isLoggable(Level.FINE)) {
+									log.fine("getQueueProperties method: pcfResetCmd command: QName of the resetResponse is '" + qName 
+											+ "', High Queue depth is '" + wrapper.getHighQDepth() 
+											+ "', EnQueue count is '" + wrapper.getEnQueueCount()
+											+ "', DeQueue count is '" + wrapper.getDeQueueCount()
+											+ "'");
+								}
+							}
 						}
 					}
+	//				rateTimestamp = currentTimestamp;
+				} catch (PCFException e) {
+					String msg = "getQueueProperties method: " + getMQDataExceptionAsString(e);
+					log.severe(msg);
+					status = new Status(StatusCode.PartialSuccess, msg, msg);
+				} catch (MQDataException e) {
+					String msg = "getQueueProperties method: " + getMQDataExceptionAsString(e);
+					log.severe(msg);
+					status = new Status(StatusCode.PartialSuccess, msg, msg);
+				} catch (IOException e) {
+					String msg = "getQueueProperties method: " + getExceptionAsString(e);
+					log.severe(msg);
+					status = new Status(StatusCode.PartialSuccess, msg, msg);
 				}
-			} catch (PCFException e) {
-				String msg = "getQueueProperties method: " + getMQDataExceptionAsString(e);
-				log.severe(msg);
-				status = new Status(StatusCode.PartialSuccess, msg, msg);
-			} catch (MQDataException e) {
-				String msg = "getQueueProperties method: " + getMQDataExceptionAsString(e);
-				log.severe(msg);
-				status = new Status(StatusCode.PartialSuccess, msg, msg);
-			} catch (IOException e) {
-				String msg = "getQueueProperties method: " + getExceptionAsString(e);
-				log.severe(msg);
-				status = new Status(StatusCode.PartialSuccess, msg, msg);
 			}
-			
 			try {
 			// pcfInqCmd command is MQConstants.MQCMD_INQUIRE_Q_STATUS
 			pcfInqResponse = msgAgent.send(pcfInqCmd);
 			log.finer("getQueueProperties method: pcfInqCmd command is MQConstants.MQCMD_INQUIRE_Q_STATUS, responses = "
 					+ pcfInqResponse.length);
 			i = 0;
-			for (PCFMessage inqResponse : pcfInqResponse) {
-				// check if response should be skipped
-				if (getEnumSize(inqResponse.getParameters()) <= 2) {
-					// skip response
-					log.warning("getQueueProperties method: pcfInqCmd command: skip response. Response object is " + inqResponse.toString());
-					Enumeration<?> e = inqResponse.getParameters();
-					int j = 0;
-					while (e.hasMoreElements()) {
-						Object obj = e.nextElement();
-						log.finer("getQueueProperties method: pcfInqCmd command: element "
-								+ (j++) + ", class is '"
-								+ obj.getClass().getCanonicalName()
-								+ "', String is '" + obj.toString()
-								+ "'");
+				for (PCFMessage inqResponse : pcfInqResponse) {
+					// check if response should be skipped
+					if (getEnumSize(inqResponse.getParameters()) <= 2) {
+						// skip response
+						log.warning("getQueueProperties method: pcfInqCmd command: skip response. Response object is " + inqResponse.toString());
+						Enumeration<?> e = inqResponse.getParameters();
+						int j = 0;
+						while (e.hasMoreElements()) {
+							Object obj = e.nextElement();
+							log.finer("getQueueProperties method: pcfInqCmd command: element "
+									+ (j++) + ", class is '"
+									+ obj.getClass().getCanonicalName()
+									+ "', String is '" + obj.toString()
+									+ "'");
+						}
+						
+						continue;
 					}
-					
-					continue;
-				}
-				
-				if (log.isLoggable(Level.FINER)) {
-					log.finer("getQueueProperties method: pcfInqCmd command: QName of the resetResponse is '" + inqResponse.getStringParameterValue(MQConstants.MQCA_Q_NAME) + "', response # " + (i++)
-							+ ", reason code " + inqResponse.getReason()
-							+ ", parameters count "
-							+ inqResponse.getParameterCount());
-				}
-				
-				String qName = inqResponse.getStringParameterValue(MQConstants.MQCA_Q_NAME);
-				if (qName.startsWith("SYSTEM") && ignoreSystem == true){
-					//do nothing
-					log.finer("getQueueProperties method:  pcfInqCmd command: skip response with the queueName '" + qName + "' because ignoreSystem is " + ignoreSystem);
-				}else{
-					try{// somehow, this fails sometimes
-						qObjectMap.get(qName).setInhibitGet(inqResponse.getIntParameterValue(MQConstants.MQIA_INHIBIT_GET));
-					}catch (Exception e) {
-						log.severe("getQueueProperties method:  pcfInqCmd command: Could not get INHIBIT_GET info for : " +  qName);
-					}
-					try{
-						qObjectMap.get(qName).setInhibitPut(inqResponse.getIntParameterValue(MQConstants.MQIA_INHIBIT_PUT));
-					}catch (Exception e) {
-						log.severe("getQueueProperties method:  pcfInqCmd command: Could not get INHIBIT_PUT info for : " +  qName);
-					}
-					qObjectMap.get(qName).setDefinitionType(inqResponse.getIntParameterValue(MQConstants.MQIA_DEFINITION_TYPE));
-					qObjectMap.get(qName).setMaxDepth(inqResponse.getIntParameterValue(MQConstants.MQIA_MAX_Q_DEPTH));
-					qObjectMap.get(qName).setMsgLength(inqResponse.getIntParameterValue(MQConstants.MQIA_MAX_MSG_LENGTH));
-					qObjectMap.get(qName).setPriorty(inqResponse.getIntParameterValue(MQConstants.MQIA_DEF_PRIORITY));
 					
 					if (log.isLoggable(Level.FINER)) {
-						log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_INHIBIT_GET is '" + qObjectMap.get(qName).getInhibitGet() + "'");
-						log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_INHIBIT_PUT is '" + qObjectMap.get(qName).getInhibitPut() + "'");
-						log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_DEFINITION_TYPE is '" + qObjectMap.get(qName).getDefinitionType() + "'");
-						log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_MAX_Q_DEPTH is '" + qObjectMap.get(qName).getMaxDepth() + "'");
-						log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_MAX_MSG_LENGTH is '" + qObjectMap.get(qName).getMsgLength() + "'");
-						log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_DEF_PRIORITY is '" + qObjectMap.get(qName).getPriorty() + "'");
+						log.finer("getQueueProperties method: pcfInqCmd command: QName of the resetResponse is '" + inqResponse.getStringParameterValue(MQConstants.MQCA_Q_NAME) + "', response # " + (i++)
+								+ ", reason code " + inqResponse.getReason()
+								+ ", parameters count "
+								+ inqResponse.getParameterCount());
+					}
+					String qName;
+					try {
+						qName = inqResponse.getStringParameterValue(MQConstants.MQCA_Q_NAME);
+						// Added in the .trim()
+						qName = qName.trim();
+					} catch (Exception e) {
+						log.severe("getQueueProperties method:  pcfInqCmd command: Could not get MQCA_Q_NAME");
+						continue;
+					}
+					if (qName.startsWith("SYSTEM") && ignoreSystem == true){
+						//do nothing
+						log.finer("getQueueProperties method:  pcfInqCmd command: skip response with the queueName '" + qName + "' because ignoreSystem is " + ignoreSystem);
+					}else{
+						try{// somehow, this fails sometimes
+							qObjectMap.get(qName).setInhibitGet(inqResponse.getIntParameterValue(MQConstants.MQIA_INHIBIT_GET));
+						} catch (Exception e) {
+							log.severe(errMsg = "getQueueProperties method:  pcfInqCmd command: Could not get INHIBIT_GET info for : " +  qName);
+							isException = true;
+						}
+						try{
+							qObjectMap.get(qName).setInhibitPut(inqResponse.getIntParameterValue(MQConstants.MQIA_INHIBIT_PUT));
+						} catch (Exception e) {
+							log.severe(errMsg = "getQueueProperties method:  pcfInqCmd command: Could not get INHIBIT_PUT info for : " +  qName);
+							isException = true;
+						}
+						try {
+							qObjectMap.get(qName).setDefinitionType(inqResponse.getIntParameterValue(MQConstants.MQIA_DEFINITION_TYPE));
+						} catch (Exception e) {
+							log.severe(errMsg = "getQueueProperties method:  pcfInqCmd command: Could not get MQIA_DEFINITION_TYPE info for : " +  qName);
+							isException = true;
+						}
+						try {
+							qObjectMap.get(qName).setMaxDepth(inqResponse.getIntParameterValue(MQConstants.MQIA_MAX_Q_DEPTH));
+						} catch (Exception e) {
+							log.severe(errMsg = "getQueueProperties method:  pcfInqCmd command: Could not get MQIA_MAX_Q_DEPTH info for : " +  qName);
+							isException = true;
+						}
+						try {
+							qObjectMap.get(qName).setMsgLength(inqResponse.getIntParameterValue(MQConstants.MQIA_MAX_MSG_LENGTH));
+						} catch (Exception e) {
+							log.severe(errMsg = "getQueueProperties method:  pcfInqCmd command: Could not get MQIA_MAX_MSG_LENGTH info for : " +  qName);
+							isException = true;
+						}
+						try {
+							qObjectMap.get(qName).setPriorty(inqResponse.getIntParameterValue(MQConstants.MQIA_DEF_PRIORITY));
+						} catch (Exception e) {
+							log.severe(errMsg = "getQueueProperties method:  pcfInqCmd command: Could not get MQIA_DEF_PRIORITY info for : " +  qName);
+							isException = true;
+						}
+						
+						if (log.isLoggable(Level.FINER) && !isException) {
+							log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_INHIBIT_GET is '" + qObjectMap.get(qName).getInhibitGet() + "'");
+							log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_INHIBIT_PUT is '" + qObjectMap.get(qName).getInhibitPut() + "'");
+							log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_DEFINITION_TYPE is '" + qObjectMap.get(qName).getDefinitionType() + "'");
+							log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_MAX_Q_DEPTH is '" + qObjectMap.get(qName).getMaxDepth() + "'");
+							log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_MAX_MSG_LENGTH is '" + qObjectMap.get(qName).getMsgLength() + "'");
+							log.finer("getQueueProperties method:  pcfInqCmd command: Queue Name is '" + qName + "', MQIA_DEF_PRIORITY is '" + qObjectMap.get(qName).getPriorty() + "'");
+						}
 					}
 				}
-			}
 			} catch (PCFException e) {
 				disconnect();
 				String msg = "getQueueProperties method: " + getMQDataExceptionAsString(e);
@@ -1396,7 +1672,53 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 		
 		allQueueProperties.addAll(qObjectMap.values());
 		
-		return status;
+		if (!isException) {
+			return status;
+		} else {
+			return new Status(StatusCode.PartialSuccess, errMsg, errMsg);
+		}
+	}
+	
+	public static double getRate(/*long rateTimestamp, long currentTimestamp,*/ int valueCurrent, Rate rate, int timeSinceLastReset) {
+		if (log.isLoggable(Level.FINE)) {
+			log.fine("Entering getRate method");
+		}
+		double d = timeSinceLastReset != 0 ? valueCurrent * getRateMultiplier(rate)/ timeSinceLastReset : Double.NaN; 
+		if (log.isLoggable(Level.FINE)){
+			log.fine("getRate method: rate: time since last reset is " + timeSinceLastReset 
+					+ ", valueCurrent is " + valueCurrent 
+					+ ", rate is " + d
+					);
+		}
+		
+		return d;
+	}
+	
+	public static double getRateMultiplier(Rate rate) {
+		if (log.isLoggable(Level.FINE)) {
+			log.fine("Entering getRateMultiplier method: rate = '" + rate.name() + "'");
+		}
+
+		double multiplier;
+		switch (rate) {
+		case per_second:
+			multiplier = 1.;
+			break;
+		case per_minute:
+			multiplier = 60.;
+			break;
+		case per_hour:
+			multiplier = 360.;
+			break;
+		default:
+			multiplier = 1.;
+			break;
+		}
+		
+		if (log.isLoggable(Level.FINE)) {
+			log.fine("getRateMultiplier method: rate = '" + rate.name() + "', multiplier is " + multiplier);
+		}
+		return multiplier;
 	}
 	
 	public static int getEnumSize(Enumeration<?> e) {
@@ -1560,5 +1882,4 @@ public class MQQueueChannelMonitorUpdated implements Monitor {
 		
 
 	}
-
 }

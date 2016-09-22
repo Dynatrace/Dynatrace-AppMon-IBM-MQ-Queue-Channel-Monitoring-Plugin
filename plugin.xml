@@ -64,6 +64,14 @@
       </property>
       <property key="dateFormat" label="Date Format" type="string" description="Date format" default="yyyy-MM-dd" multiline="false" />
       <property key="timeFormat" label="Time Format" type="string" description="Time format" default="HH.mm.ss" multiline="false" />
+      <property key="rate" label="Rate" type="list" description="Defines rate" default="per_second">
+        <list>
+          <item value="per_second" />
+          <item value="per_minute" />
+          <item value="per_hour" />
+        </list>
+      </property>
+      <property key="indResetCmd" label="Run Reset Command" type="boolean" description="If true, the Reset Command will be execute, otherwise false" default="true" />
       <property key="Collect Queue Information" label="Collect Queue Information" type="boolean" description="My property description ..." default="false" />
       <property key="Queue Name Filter" label="Queue Name Filter (Optional)" type="string" description="Filter string that will allow you to see data for a particular set of queues only. This will help in reducing the memory requirement on the collector." default="" multiline="false">
         <visibility>
@@ -77,6 +85,7 @@
         </visibility>
       </property>
       <property key="ignoreSystemObject" label="Ignore System Object" type="boolean" description="My property description ..." default="true" />
+      <property key="debuggingQueues" label="Debugging Queues" type="string" description="For these queues plugin will generate log messages" default="" multiline="false" />
     </configuration>
   </extension>
   <extension point="com.dynatrace.diagnostics.pdk.monitor" id="com.dynatrace.plugin.MQQueueChannelMonitorUpdated.monitor" name="MQ Queue Channel Monitor Updated">
@@ -108,6 +117,7 @@
     <metricgroup monitorid="com.dynatrace.plugin.MQQueueChannelMonitorUpdated.monitor">
       <metric name="CURRENT_Q_DEPTH" unit="number" description="My metric description ..." />
       <metric name="MAX_Q_DEPTH" unit="number" description="My metric description ..." />
+      <metric name="PERCENTAGE_Q_DEPTH" unit="percent" description="My metric description ..." />
       <metric name="OPEN_INPUT_COUNT" unit="number" description="My metric description ..." />
       <metric name="OPEN_OUTPUT_COUNT" unit="number" description="My metric description ..." />
       <metric name="DEF_PRIORITY" unit="number" description="My metric description ..." />
@@ -116,7 +126,9 @@
       <metric name="INHIBIT_PUT" unit="number" description="My metric description ..." />
       <metric name="ENQUEUE_COUNT" unit="number" description="The number of messages that where enqueued since last reset queue statistics" />
       <metric name="DEQUEUE_COUNT" unit="number" description="The number of messages that where dequeued since last reset queue statistics" />
-      <metric name="OLDEST_MSG_AGE" unit="ms" />
+      <metric name="ENQUEUE_RATE" unit="number" description="The number of messages per sec/min/hour/millisecond that where enqueued since last reset queue statistics" />
+      <metric name="DEQUEUE_RATE" unit="number" description="The number of messages per sec/min/hour/millisecond that where dequeued since last reset queue statistics" />
+      <metric name="OLDEST_MSG_AGE" unit="s" />
       <metric name="UNCOMMITTED_MSGS" unit="number" />
       <metric name="HIGH_Q_DEPTH" unit="number" />
       <metric name="INT_LAST_GET" unit="ms" description="My metric description ..." />
@@ -126,4 +138,3 @@
     </metricgroup>
   </extension>
 </plugin>
-

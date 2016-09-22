@@ -3,16 +3,51 @@ package com.dynatrace.plugin;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 
-public class QueuePropWrapper {
+import com.dynatrace.plugin.util.MQQueueChannelMonitorConstants;
+
+public class QueuePropWrapper implements MQQueueChannelMonitorConstants {
     
-    private int depth,maxDepth,openInputCount,openOutputCount;
-    private int msgLength,priorty,persistance,queueType,putAllowed,getAllowed;
-    private int inhibitGet, inhibitPut, oldestMsgAge, uncommittedMsgs, enQueueCount, deQueueCount, highQDepth;
-    private String  queueName,alterTime,createTime,msgDesc,remoteQM,queueDesc;
-    private String  remoteQName,alterationDate,creationDate,TransmissionQueueName;
-    private String  lastGetDate, lastGetTime, lastPutDate, lastPutTime;
+//    private int depth,maxDepth,openInputCount,openOutputCount;
+	private int depth = Integer.MIN_VALUE;
+	private int maxDepth = Integer.MIN_VALUE;
+	private int openInputCount = Integer.MIN_VALUE;
+	private int openOutputCount = Integer.MIN_VALUE; 
+//    private int msgLength,priorty,persistance,queueType,putAllowed,getAllowed;
+	private int msgLength = Integer.MIN_VALUE;
+	private int priorty = Integer.MIN_VALUE;
+	private int persistance = Integer.MIN_VALUE;
+	private int queueType = Integer.MIN_VALUE;
+	private int putAllowed = Integer.MIN_VALUE;
+	private int getAllowed = Integer.MIN_VALUE;
+//    private int inhibitGet, inhibitPut, oldestMsgAge, uncommittedMsgs, enQueueCount, deQueueCount, highQDepth;
+	private int inhibitGet = Integer.MIN_VALUE;
+	private int inhibitPut = Integer.MIN_VALUE; 
+	private int oldestMsgAge = Integer.MIN_VALUE; 
+	private int uncommittedMsgs = Integer.MIN_VALUE; 
+	private int enQueueCount = Integer.MIN_VALUE; 
+	private int deQueueCount = Integer.MIN_VALUE; 
+	private int highQDepth = Integer.MIN_VALUE;
+//    private String  queueName,alterTime,createTime,msgDesc,remoteQM,queueDesc;
+	private String queueName = EMPTY_STRING;
+	private String alterTime = EMPTY_STRING;
+	private String createTime = EMPTY_STRING;
+	private String msgDesc = EMPTY_STRING;
+	private String remoteQM = EMPTY_STRING;
+	private String queueDesc = EMPTY_STRING;	
+//    private String  remoteQName,alterationDate,creationDate,TransmissionQueueName;
+	private String remoteQName = EMPTY_STRING;
+	private String alterationDate = EMPTY_STRING;
+	private String creationDate = EMPTY_STRING;
+	private String TransmissionQueueName = EMPTY_STRING;
+//    private String  lastGetDate, lastGetTime, lastPutDate, lastPutTime;
+	private String lastGetDate = EMPTY_STRING; 
+	private String lastGetTime = EMPTY_STRING; 
+	private String lastPutDate = EMPTY_STRING; 
+	private String lastPutTime = EMPTY_STRING;
     private int definitionType;
-    private int[] onQTime;
+    private int[] onQTime = EMPTY_ARRAY_OF_INTS;
+    private double deQueueRate = Double.NaN;
+    private double enQueueRate = Double.NaN;
 
 	public int getDefinitionType() {
 		return definitionType;
@@ -78,6 +113,22 @@ public class QueuePropWrapper {
 		this.deQueueCount = deQueueCount;
 	}
 
+	public double getDeQueueRate() {
+		return deQueueRate;
+	}
+
+	public void setDeQueueRate(double deQueueRate) {
+		this.deQueueRate = deQueueRate;
+	}
+
+	public double getEnQueueRate() {
+		return enQueueRate;
+	}
+
+	public void setEnQueueRate(double enQueueRate) {
+		this.enQueueRate = enQueueRate;
+	}
+
 	public int getHighQDepth() {
 		return highQDepth;
 	}
@@ -135,7 +186,7 @@ public class QueuePropWrapper {
 	}
 
 	public long getIntervalSinceLastGet(){
-		SimpleDateFormat sdf = new SimpleDateFormat ("yyyy-mm-dd hh.mm.ss");
+		SimpleDateFormat sdf = new SimpleDateFormat ("yyyy-MM-dd HH.mm.ss");
 		long interval = -1;
 		try {
 			interval = System.currentTimeMillis() - (sdf.parse(lastGetDate + " " + lastGetTime)).getTime();
@@ -146,7 +197,7 @@ public class QueuePropWrapper {
 	}
 	
 	public long getIntervalSinceLastPut(){
-		SimpleDateFormat sdf = new SimpleDateFormat ("yyyy-mm-dd hh.mm.ss");
+		SimpleDateFormat sdf = new SimpleDateFormat ("yyyy-MM-dd HH.mm.ss");
 		long interval = -1;
 		try {
 			interval = System.currentTimeMillis() - (sdf.parse(lastPutDate + " " + lastPutTime)).getTime();
