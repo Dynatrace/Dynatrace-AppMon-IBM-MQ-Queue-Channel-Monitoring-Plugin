@@ -412,6 +412,8 @@ public class MQQueueChannelMonitorUpdated implements Monitor, MQQueueChannelMoni
 		else if (inCipher.equalsIgnoreCase("TRIPLE_DES_SHA_US")) outCipher  = "SSL_RSA_WITH_3DES_EDE_CBC_SHA";
 		else if (inCipher.equalsIgnoreCase("TLS_RSA_WITH_AES_128_CBC_SHA")) outCipher  = "SSL_RSA_WITH_AES_128_CBC_SHA";
 		else if (inCipher.equalsIgnoreCase("TLS_RSA_WITH_AES_256_CBC_SHA5")) outCipher  = "SSL_RSA_WITH_AES_256_CBC_SHA";
+		else if (inCipher.equalsIgnoreCase("TLS_RSA_WITH_AES_256_CBC_SHA256_IBM")) outCipher  = "SSL_RSA_WITH_AES_256_CBC_SHA256";
+		else if (inCipher.equalsIgnoreCase("TLS_RSA_WITH_AES_256_CBC_SHA256_Oracle")) outCipher  = "TLS_RSA_WITH_AES_256_CBC_SHA256";
 		else if (inCipher.equalsIgnoreCase("AES_SHA_US2")) outCipher  = ""; 	  	  	 
 		else if (inCipher.equalsIgnoreCase("TLS_RSA_WITH_DES_CBC_SHA")) outCipher  = "SSL_RSA_WITH_DES_CBC_SHA";
 		else if (inCipher.equalsIgnoreCase("TLS_RSA_WITH_3DES_EDE_CBC_SHA")) outCipher  = "SSL_RSA_WITH_3DES_EDE_CBC_SHA";

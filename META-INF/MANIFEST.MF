@@ -4,7 +4,7 @@ Bundle-Vendor: dynaTrace
 Bundle-ClassPath: .,lib/com.ibm.mq.commonservices.jar,lib/com.ibm.mq.h
  eaders.jar,lib/com.ibm.mq.jar,lib/com.ibm.mq.jmqi.jar,lib/com.ibm.mq.
  pcf.jar,lib/connector.jar
-Bundle-Version: 0.9.1.22
+Bundle-Version: 0.9.1.25
 Bundle-Name: MQ Queue Channel Monitor
 Bundle-ManifestVersion: 2
 Bundle-SymbolicName: com.dynatrace.plugin.MQQueueChannelMonitorUpdated
